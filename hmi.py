@@ -312,6 +312,32 @@ for i in range(0, len(shifts), 2):
 
 st.divider()
 
+grouped = (
+    df_valid.groupby(["shift", "chauffeur_norm"], dropna=True)
+    .agg(nb_personnes=("nom&prenom", "nunique"))
+    .reset_index()
+)
+grouped["taux_pct"] = (grouped["nb_personnes"] / CAPACITE * 100).round(1)
+
+# === MAPPING CIRCUIT DEPUIS FEUILLE HMI (df_site) ===
+if not df_site.empty and "circuit" in df_site.columns:
+    df_circuits = (
+        df_site[["chauffeur", "shift", "circuit"]]
+        .dropna(subset=["chauffeur", "shift"])
+        .copy()
+    )
+    df_circuits["chauffeur_norm"] = df_circuits["chauffeur"].apply(normalize)
+
+    # On garde 1 seul circuit par (shift, chauffeur_norm)
+    df_circuits = (
+        df_circuits
+        .groupby(["shift", "chauffeur_norm"], as_index=False)["circuit"]
+        .agg(lambda x: x.mode().iat[0] if not x.mode().empty else x.iloc[0])
+    )
+else:
+    df_circuits = pd.DataFrame(columns=["shift", "chauffeur_norm", "circuit"])
+
+
 # ==============================
 # TABLEAUX PAR SHIFT
 # ==============================
@@ -319,20 +345,25 @@ st.subheader("📋 Détails par Shift")
 
 def prepare_shift_table(df_shift, shift_name):
     if df_shift.empty:
-        return pd.DataFrame(columns=["Chauffeur", "Shift", "Circuit","Nb personnes"])
+        return pd.DataFrame(columns=["Chauffeur", "Shift", "Circuit", "Durée", "Nb personnes"])
 
     df_shift = df_shift.rename(columns={
         "chauffeur": "Chauffeur",
         "shift": "Shift",
-        "circuit": "Circuit",
-        
+        "durée": "Durée",
     })
+
+    # Chauffeur normalisé pour join
     df_shift["chauffeur_norm"] = df_shift["Chauffeur"].apply(normalize)
+
+    # Durée en minutes + ⚠️ > 90 min
     df_shift["Durée_min"] = df_shift["Durée"].apply(convert_duration_to_minutes)
     df_shift["Durée"] = df_shift.apply(
-        lambda r: f"{r['Durée']} ⚠️" if r["Durée_min"] > 90 else r["Durée"], axis=1
+        lambda r: f"{r['Durée']} ⚠️" if r["Durée_min"] > 90 else r["Durée"],
+        axis=1
     )
 
+    # Join avec nb_personnes (grouped) sur shift + chauffeur_norm
     merged = pd.merge(
         df_shift,
         grouped[["shift", "chauffeur_norm", "nb_personnes"]],
@@ -341,10 +372,34 @@ def prepare_shift_table(df_shift, shift_name):
         right_on=["shift", "chauffeur_norm"]
     )
 
-    merged = merged[["Chauffeur", "Shift", "Circuit", "nb_personnes"]]
-    merged = merged.rename(columns={"nb_personnes": "Nb personnes"})
+    # Join avec CIRCUIT venant UNIQUEMENT de la feuille HMI (df_circuits)
+    merged = pd.merge(
+        merged,
+        df_circuits[["shift", "chauffeur_norm", "circuit"]],
+        how="left",
+        on=["shift", "chauffeur_norm"]
+    )
+
+    # Nettoyage des colonnes techniques
+    if "shift" in merged.columns:
+        merged = merged.drop(columns=["shift"])
+    if "Durée_min" in merged.columns:
+        merged = merged.drop(columns=["Durée_min"])
+    if "chauffeur_norm" in merged.columns:
+        merged = merged.drop(columns=["chauffeur_norm"])
+
+    # Sélection / renommage final
+    merged = merged.rename(columns={
+        "nb_personnes": "Nb personnes",
+        "circuit": "Circuit",
+    })
+
+    # Ordre des colonnes dans le tableau
+    cols_final = ["Chauffeur", "Shift", "Circuit", "Durée", "Nb personnes"]
+    merged = merged[[c for c in cols_final if c in merged.columns]]
+
     return merged
-    
+
 
 # --- TABLES ---
 # === Entêtes vertes pour st.dataframe (Streamlit 1.50–1.51) ===
