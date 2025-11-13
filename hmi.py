@@ -319,12 +319,12 @@ st.subheader("📋 Détails par Shift")
 
 def prepare_shift_table(df_shift, shift_name):
     if df_shift.empty:
-        return pd.DataFrame(columns=["Chauffeur", "Shift", "Durée", "Nb personnes"])
+        return pd.DataFrame(columns=["Chauffeur", "Shift", "Circuit","Nb personnes"])
 
     df_shift = df_shift.rename(columns={
         "chauffeur": "Chauffeur",
         "shift": "Shift",
-        "durée": "Durée",
+        "circuit": "Circuit",
         
     })
     df_shift["chauffeur_norm"] = df_shift["Chauffeur"].apply(normalize)
@@ -341,7 +341,7 @@ def prepare_shift_table(df_shift, shift_name):
         right_on=["shift", "chauffeur_norm"]
     )
 
-    merged = merged[["Chauffeur", "Shift", "Durée", "nb_personnes"]]
+    merged = merged[["Chauffeur", "Shift", "Circuit", "nb_personnes"]]
     merged = merged.rename(columns={"nb_personnes": "Nb personnes"})
     return merged
     
